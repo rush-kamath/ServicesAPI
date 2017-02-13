@@ -190,7 +190,7 @@ public class WebServiceUtilTest {
 		apiParameters.setMethod("POST");
 		apiParameters.setMapping(null);
 		String xmlResponse = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?><geonames><status/></geonames>";
-		when(ConvertXMLToJson.convert(xmlResponse, null, "serviceName")).thenReturn(convertedResponse);
+		when(ConvertXMLToJson.convert(xmlResponse, null)).thenReturn(convertedResponse);
 		when(convertedResponse.toString()).thenReturn(jsonResponse);
 		assertEquals(jsonResponse, WebServiceUtil.parseWebServiceResponse(apiParameters, response));
 	}

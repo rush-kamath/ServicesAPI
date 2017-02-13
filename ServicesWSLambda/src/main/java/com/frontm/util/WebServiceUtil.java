@@ -9,6 +9,7 @@ import javax.ws.rs.client.Invocation;
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.Response.StatusType;
 
 import org.apache.log4j.Logger;
 import org.glassfish.jersey.client.authentication.HttpAuthenticationFeature;
@@ -16,6 +17,7 @@ import org.glassfish.jersey.client.authentication.HttpAuthenticationFeature;
 import com.frontm.domain.APIParameters;
 import com.frontm.domain.FrontMRequest;
 import com.frontm.domain.FrontMRequest.Parameters;
+import com.frontm.exception.FrontMException;
 
 public class WebServiceUtil {
 
@@ -24,15 +26,21 @@ public class WebServiceUtil {
 
 	public static String parseWebServiceResponse(APIParameters apiParams, Response response) throws Exception {
 		final String responseContent = response.readEntity(String.class);
-		logger.info("web service status: " + response.getStatusInfo());
-		logger.info("web service headers: " + response.getStringHeaders());
-		logger.info("web service response: " + responseContent);
+		final int status = response.getStatus();
+		final StatusType statusInfo = response.getStatusInfo();
+		logger.info("web service status: " + status + " " + statusInfo);
+		logger.debug("web service response: " + responseContent);
 
 		if (apiParams.isJsonFormat()) {
 			return responseContent;
 		} else {
-			logger.info("parsing the XML to JSON");
-			return ConvertXMLToJson.convert(responseContent, apiParams.getMappingJson(), apiParams.getService()).toString();
+			if(Response.Status.OK.getStatusCode() == status) {
+				logger.info("parsing the XML to JSON");
+				return ConvertXMLToJson.convert(responseContent, apiParams.getMappingJson()).toString();
+			} else {
+				logger.info("throwing FrontMException exception since status is: " + statusInfo);
+				throw new FrontMException(status + " " + statusInfo + " " + responseContent);
+			}
 		}
 	}
 

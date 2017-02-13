@@ -33,7 +33,7 @@ public class ServicesHandler implements RequestHandler<FrontMRequest, String> {
 	@Override
 	public String handleRequest(FrontMRequest input, Context context) {
 		String returnMsg = null;
-		logger.debug("Input parameters in the request: " + input);
+		logger.info("Input parameters in the request: " + input);
 
 		try {
 			validateInput(input);
