@@ -26,7 +26,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 public class ConvertXMLToJson {
 	private static final Logger logger = Logger.getLogger(ConvertXMLToJson.class);
 	
-	public static ObjectNode convert(String xmlString, JsonNode mapping, String serviceName) throws Exception {
+	public static ObjectNode convert(String xmlString, JsonNode mapping) throws Exception {
 		try {
 			logger.info("mapping: " + Jackson.toJsonPrettyString(mapping));
 			DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
@@ -40,11 +40,8 @@ public class ConvertXMLToJson {
 			ObjectMapper objMapper = new ObjectMapper();
 			ObjectNode rootNode = createJsonNode(doc, xPath, inJsonFields, objMapper);
 			
-			final ObjectNode serviceNode = objMapper.createObjectNode();
-			serviceNode.set(serviceName, rootNode);
-
-			logger.info("serviceNode: " + Jackson.toJsonPrettyString(serviceNode));
-			return serviceNode;
+			logger.info("rootNode: " + Jackson.toJsonPrettyString(rootNode));
+			return rootNode;
 		} catch (Exception e) {
 			logger.error("Error occured while converting XML to JSON", e);
 			throw e;

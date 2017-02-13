@@ -21,38 +21,52 @@ import com.frontm.domain.APIParameters;
 import com.frontm.domain.FrontMRequest;
 import com.frontm.domain.FrontMRequest.Parameters;
 import com.frontm.domain.MessageQueue;
+import com.frontm.domain.MessageQueue.Item;
+import com.frontm.domain.MessageQueue.Item.Content;
 import com.frontm.domain.ServicesWSInput;
-
+import com.frontm.exception.FrontMException;
 
 public class ServicesWSHandler implements RequestHandler<ServicesWSInput, Void> {
 	private static final Logger logger = Logger.getLogger(ServicesWSHandler.class);
-	private static final String CONTENT_TYPE_150 = "150";
-	
+	private static final String MSG_Q_CONTENT_TYPE = "150";
+	private static final String MSG_Q_RET_VAL = "NONE";
+	private static final String MSG_Q_CREATED_BY = "AgentM";
+
 	@Override
 	public Void handleRequest(ServicesWSInput input, Context context) {
 		logger.debug("Input parameters in the request: " + input);
-
 		try {
-			// call the webservice
 			final APIParameters apiParams = input.getApiParameters();
 			final FrontMRequest request = input.getRequest();
 
 			Invocation.Builder invocationBuilder = createWebserviceCall(request, apiParams);
 			Response response = getWebserviceResponse(request, apiParams, invocationBuilder);
-			final String webServiceResponse = parseWebServiceResponse(apiParams, response);
-
-			InvokeRequest invokeRequest = createLambdaInput(input, webServiceResponse);
+			
+			final InvokeRequest invokeRequest = createQueueFuncRequest (input, apiParams, response);
 			final InvokeResult invoke = AWSLambdaAsyncClientBuilder.defaultClient().invoke(invokeRequest);
+			
 			logger.info("After calling message queue function: " + invoke.getStatusCode());
 		} catch (Exception e) {
 			logger.error("Error occured:", e);
 		}
 		return null;
 	}
+	
+	private InvokeRequest createQueueFuncRequest(ServicesWSInput input, APIParameters apiParams, Response response) throws Exception {
+		InvokeRequest invokeRequest = null;
+		try {
+			final String webServiceResponse = parseWebServiceResponse(apiParams, response);
+			invokeRequest = createLambdaInput(input, webServiceResponse, true);
+		} catch (FrontMException e) {
+			logger.info("Not OK response from web service: " + e.getMessage());
+			invokeRequest = createLambdaInput(input, e.getMessage(), false);
+		}
+		return invokeRequest;
+	}
 
-	private InvokeRequest createLambdaInput(ServicesWSInput input, final String webServiceResponse)
+	private InvokeRequest createLambdaInput(ServicesWSInput input, final String webServiceResponse, boolean isOKResponse)
 			throws JsonProcessingException {
-		MessageQueue messageQueue = createMessageQueueResponse(input.getRequest(), webServiceResponse);
+		MessageQueue messageQueue = createMessageQueueResponse(input.getRequest(), webServiceResponse, isOKResponse);
 		final String msgQueueJson = new ObjectMapper().writeValueAsString(messageQueue);
 		logger.info(msgQueueJson);
 
@@ -63,19 +77,32 @@ public class ServicesWSHandler implements RequestHandler<ServicesWSInput, Void> 
 		return invokeRequest;
 	}
 
-	private MessageQueue createMessageQueueResponse(FrontMRequest frontMRequest, final String webServiceResponse) {
-		final MessageQueue messageQueue = new MessageQueue();
-		messageQueue.setContentType(CONTENT_TYPE_150);
-		messageQueue.setContent(webServiceResponse);
-		messageQueue.setCreatedOn(System.currentTimeMillis());
+	private MessageQueue createMessageQueueResponse(FrontMRequest frontMRequest, final String webServiceResponse, boolean isOKResponse) {
+		final Content content = new Content();
+		content.setContentType(MSG_Q_CONTENT_TYPE);
+		if(isOKResponse) {
+			content.setDetails(webServiceResponse);
+		} else {
+			content.setError(webServiceResponse);
+		}
+
+		final Item item = new Item();
+		item.setCreatedOn(System.currentTimeMillis());
+		item.setContent(content);
+		item.setNotifyToOwner(true);
+		item.setCreatedBy(MSG_Q_CREATED_BY);
 
 		final Parameters parameters = frontMRequest.getParameters();
-		if(parameters != null) {
-			messageQueue.setCreatedBy(parameters.getUserUuid());
-			messageQueue.setUserUuid(parameters.getUserUuid());
-			messageQueue.setConversation(parameters.getConversationId());
-			messageQueue.setPush(parameters.getPush());
+		if (parameters != null) {
+			item.setUserUuid(parameters.getUserUuid());
+			item.setConversation(parameters.getConversationId());
+			item.setPush(parameters.getPush());
 		}
+
+		final MessageQueue messageQueue = new MessageQueue();
+		messageQueue.setTableName(System.getenv("MSG_Q_TABLE_NAME"));
+		messageQueue.setReturnValues(MSG_Q_RET_VAL);
+		messageQueue.setItem(item);
 		return messageQueue;
 	}
 }
