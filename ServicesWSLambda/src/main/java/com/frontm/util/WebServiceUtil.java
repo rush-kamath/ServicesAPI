@@ -31,16 +31,16 @@ public class WebServiceUtil {
 		logger.info("web service status: " + status + " " + statusInfo);
 		logger.debug("web service response: " + responseContent);
 
-		if (apiParams.isJsonFormat()) {
-			return responseContent;
-		} else {
-			if(Response.Status.OK.getStatusCode() == status) {
+		if (Response.Status.OK.getStatusCode() == status) {
+			if (apiParams.isJsonFormat()) {
+				return responseContent;
+			} else {
 				logger.info("parsing the XML to JSON");
 				return ConvertXMLToJson.convert(responseContent, apiParams.getMappingJson()).toString();
-			} else {
-				logger.info("throwing FrontMException exception since status is: " + statusInfo);
-				throw new FrontMException(status + " " + statusInfo + " " + responseContent);
 			}
+		} else {
+			logger.info("throwing FrontMException exception since status is: " + statusInfo);
+			throw new FrontMException(status + " " + statusInfo + " " + responseContent);
 		}
 	}
 

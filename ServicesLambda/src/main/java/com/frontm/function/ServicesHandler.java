@@ -28,6 +28,8 @@ public class ServicesHandler implements RequestHandler<FrontMRequest, String> {
 	static final String MISSING_USER_UUID_MESSAGE = "User uuid is a required input. It is empty in the request";
 	static final String INVALID_FORMAT_IN_DB = "Incorrect data in DB table APIParams. Only XML and JSON formats supported currently";
 	static final String INVALID_METHOD_IN_DB = "Incorrect data in DB table APIParams. Only GET and POST methods supported currently";
+	static final String MISSING_MAPPING_FOR_XML_FORMAT = "Incorrect data in DB table APIParams. XML format requires mapping information for JSON conversion";
+	
 	private APIParamsDAO apiParamsDao;
 
 	@Override
@@ -95,6 +97,10 @@ public class ServicesHandler implements RequestHandler<FrontMRequest, String> {
 
 		if (!apiParams.isGetMethod() && !apiParams.isPostMethod()) {
 			throw new FrontMException(INVALID_METHOD_IN_DB);
+		}
+		
+		if(apiParams.isXMLFormat() && apiParams.getMapping() == null) {
+			throw new FrontMException(MISSING_MAPPING_FOR_XML_FORMAT);
 		}
 	}
 

@@ -4,6 +4,7 @@ import static com.frontm.function.ServicesHandler.INVALID_FORMAT_IN_DB;
 import static com.frontm.function.ServicesHandler.MISSING_USER_UUID_MESSAGE;
 import static com.frontm.function.ServicesHandler.MISSING_SERVICE_DOMAIN_MESSAGE;
 import static com.frontm.function.ServicesHandler.INVALID_METHOD_IN_DB;
+import static com.frontm.function.ServicesHandler.MISSING_MAPPING_FOR_XML_FORMAT;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 import static org.mockito.Mockito.when;
@@ -85,5 +86,9 @@ public class ServicesHandlerTest {
 		apiParameters.setMethod("PUT");
 		apiParameters.setFormat("JSON");
 		assertEquals(INVALID_METHOD_IN_DB, callHandlerWithMocks(input, apiParameters));
+		
+		apiParameters.setMethod("POST");
+		apiParameters.setFormat("XML");
+		assertEquals(MISSING_MAPPING_FOR_XML_FORMAT, callHandlerWithMocks(input, apiParameters));
 	}
 }

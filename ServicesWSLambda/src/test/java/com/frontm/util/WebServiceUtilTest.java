@@ -31,6 +31,7 @@ import org.powermock.modules.junit4.PowerMockRunner;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.frontm.domain.APIParameters;
 import com.frontm.domain.FrontMRequest;
+import com.frontm.exception.FrontMException;
 
 /**
  * A simple test harness for locally invoking your Lambda function handler.
@@ -185,14 +186,23 @@ public class WebServiceUtilTest {
 
 		String jsonResponse = "{\"k1\"=\"v1\"}";
 		when(response.readEntity(String.class)).thenReturn(jsonResponse);
+		when(response.getStatus()).thenReturn(200);
 		assertEquals(jsonResponse, WebServiceUtil.parseWebServiceResponse(apiParameters, response));
 
-		apiParameters.setMethod("POST");
+		apiParameters.setFormat("XML");
 		apiParameters.setMapping(null);
 		String xmlResponse = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?><geonames><status/></geonames>";
+		when(response.readEntity(String.class)).thenReturn(xmlResponse);
 		when(ConvertXMLToJson.convert(xmlResponse, null)).thenReturn(convertedResponse);
 		when(convertedResponse.toString()).thenReturn(jsonResponse);
 		assertEquals(jsonResponse, WebServiceUtil.parseWebServiceResponse(apiParameters, response));
+	}
+	
+	@Test(expected = FrontMException.class)
+	public void testParseWebServiceError() throws Exception {
+		when(response.getStatus()).thenReturn(401);
+		when(response.getStatusInfo()).thenReturn(Response.Status.UNAUTHORIZED);
+		WebServiceUtil.parseWebServiceResponse(new APIParameters(domain, service), response);
 	}
 
 	private void resetMocks() {

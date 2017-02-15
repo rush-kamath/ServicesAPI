@@ -173,6 +173,10 @@ public class APIParameters {
 	
 	@JsonIgnore
 	public JsonNode getMappingJson() throws Exception {
+		 // mapping is not a required field for JSON formats. If it is null, do not attempt creating JSON node.
+		if(mapping == null) {
+			return null;
+		}
 		ObjectMapper objectMapper = new ObjectMapper();
 		return objectMapper.readTree(mapping);
 	}
