@@ -24,12 +24,14 @@ import com.frontm.domain.FrontMRequest;
 @SuppressWarnings("unchecked")
 @RunWith(MockitoJUnitRunner.class)
 public class APIParamsDAOTest {
-	@Mock DynamoDBMapper mockMapper;
-	@Mock PaginatedQueryList<APIParameters> results;
-	
+	@Mock
+	DynamoDBMapper mockMapper;
+	@Mock
+	PaginatedQueryList<APIParameters> results;
+
 	final String domain = "frontm.com";
 	final String service = "TestGet";
-	
+
 	private static AmazonDynamoDB actualDynamoDB;
 
 	@BeforeClass
@@ -37,11 +39,11 @@ public class APIParamsDAOTest {
 		actualDynamoDB = AmazonDynamoDBClientBuilder.standard().withRegion(Regions.US_EAST_1)
 				.withCredentials(new ProfileCredentialsProvider()).build();
 	}
-	
+
 	private APIParameters callDaoWithMocks(FrontMRequest input) throws Exception {
 		APIParamsDAO dao = new APIParamsDAO();
 		dao.setDynamoDBMapper(mockMapper);
-		
+
 		return dao.getApiParamsFromDB(input);
 	}
 
@@ -49,7 +51,7 @@ public class APIParamsDAOTest {
 	public void testUnavailableService() {
 		when(mockMapper.query(eq(APIParameters.class), any(DynamoDBQueryExpression.class))).thenReturn(results);
 		when(results.isEmpty()).thenReturn(true);
-		
+
 		final FrontMRequest input = new FrontMRequest();
 		input.setDomain(domain);
 		input.setService(service);
@@ -60,11 +62,11 @@ public class APIParamsDAOTest {
 			assertEquals("Service " + service + " in Domain " + domain + " is not found", e.getMessage());
 		}
 	}
-	
+
 	@Test
 	public void testNoFormatInDB() throws Exception {
 		APIParameters apiParameters = new APIParameters(domain, service);
-		
+
 		when(mockMapper.query(eq(APIParameters.class), any(DynamoDBQueryExpression.class))).thenReturn(results);
 		when(results.isEmpty()).thenReturn(false);
 		when(results.get(0)).thenReturn(apiParameters);
@@ -79,33 +81,47 @@ public class APIParamsDAOTest {
 	private APIParameters callDaoWithRealDB(FrontMRequest input) throws Exception {
 		APIParamsDAO dao = new APIParamsDAO();
 		dao.setDynamoDBMapper(new DynamoDBMapper(actualDynamoDB));
-		
+
 		return dao.getApiParamsFromDB(input);
 	}
-	
+
 	@Test
 	public void testUnavailableServiceRealDB() {
 		final FrontMRequest input = new FrontMRequest();
 		input.setDomain(service);
 		input.setService(domain);
-		
+
 		try {
 			callDaoWithRealDB(input);
 		} catch (Exception e) {
 			assertEquals("Service " + domain + " in Domain " + service + " is not found", e.getMessage());
 		}
 	}
-	
+
 	@Test
 	public void testAvailableService() throws Exception {
 		final String domain = "frontm.com";
-		final String service = "TestGet";
-		
+		String service = "TestGet";
+
 		final FrontMRequest input = new FrontMRequest();
 		input.setDomain(domain);
 		input.setService(service);
-		
-		final APIParameters apiParams = callDaoWithRealDB(input);
+
+		APIParameters apiParams = callDaoWithRealDB(input);
+		assertEquals(domain, apiParams.getDomain());
+		assertEquals(service, apiParams.getService());
+
+		service = "TestGetXML";
+		input.setService(service);
+
+		apiParams = callDaoWithRealDB(input);
+		assertEquals(domain, apiParams.getDomain());
+		assertEquals(service, apiParams.getService());
+
+		service = "GXGetResellerSites";
+		input.setService(service);
+
+		apiParams = callDaoWithRealDB(input);
 		assertEquals(domain, apiParams.getDomain());
 		assertEquals(service, apiParams.getService());
 	}

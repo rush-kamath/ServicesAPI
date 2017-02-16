@@ -1,35 +1,33 @@
 package com.frontm.domain;
 
-import java.io.IOException;
 import java.util.Map;
 
 import org.apache.log4j.Logger;
 
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTypeConverter;
+import com.amazonaws.services.dynamodbv2.document.Item;
+import com.amazonaws.services.dynamodbv2.document.internal.InternalUtils;
+import com.amazonaws.services.dynamodbv2.model.AttributeValue;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-public class MapConverter implements DynamoDBTypeConverter<String, Map<String, Object>> {
+public class MapConverter implements DynamoDBTypeConverter<Map<String, AttributeValue>, String> {
 	private static final Logger logger = Logger.getLogger(MapConverter.class);
-	
+
 	@Override
-	public String convert(Map<String,Object> object) {
-		try {
-			return new ObjectMapper().writeValueAsString(object);
-		} catch (JsonProcessingException e) {
-			logger.error("Unable to convert to String. Map is: " + object, e);
-			return null;
-		}
+	public Map<String, AttributeValue> convert(String object) {
+		Item item = new Item().withJSON("document", object);
+		Map<String,AttributeValue> attributes = InternalUtils.toAttributeValues(item);
+		return attributes.get("document").getM();
 	}
 
 	@Override
-	public Map<String,Object> unconvert(String object) {
-		ObjectMapper m = new ObjectMapper();
+	public String unconvert(Map<String, AttributeValue> object) {
 		try {
-			return m.readValue(object, new TypeReference<Map<String, Object>>() {});
-		} catch (IOException e) {
-			logger.error("Unable to convert to map. String is: " + object, e);
+			final Map<String, Object> simpleMapValue = InternalUtils.toSimpleMapValue(object);
+			return new ObjectMapper().writeValueAsString(simpleMapValue);
+		} catch (JsonProcessingException e) {
+			logger.error(e);
 			return null;
 		}
 	}

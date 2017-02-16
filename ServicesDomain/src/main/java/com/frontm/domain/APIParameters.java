@@ -3,6 +3,7 @@ package com.frontm.domain;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBHashKey;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBRangeKey;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable;
+import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTypeConverted;
 import com.amazonaws.util.json.Jackson;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -18,8 +19,6 @@ public class APIParameters {
 	private String method;
 	private String url;
 	private String uuid;
-	
-//	@DynamoDBTypeConverted(converter = MapConverter.class)
 	private String mapping;
 
 	public static final String JSON_FORMAT = "JSON";
@@ -163,6 +162,7 @@ public class APIParameters {
 		return POST_METHOD.equals(this.getMethod());
 	}
 
+	@DynamoDBTypeConverted(converter = MapConverter.class)
 	public String getMapping() {
 		return mapping;
 	}
