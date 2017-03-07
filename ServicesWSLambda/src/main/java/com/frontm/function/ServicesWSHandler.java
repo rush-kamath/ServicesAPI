@@ -5,6 +5,7 @@ import static com.frontm.util.WebServiceUtil.getWebserviceResponse;
 import static com.frontm.util.WebServiceUtil.parseWebServiceResponse;
 
 import javax.ws.rs.client.Invocation;
+import javax.ws.rs.client.Invocation.Builder;
 import javax.ws.rs.core.Response;
 
 import org.apache.log4j.Logger;
@@ -40,9 +41,7 @@ public class ServicesWSHandler implements RequestHandler<ServicesWSInput, Void> 
 			final FrontMRequest request = input.getRequest();
 
 			Invocation.Builder invocationBuilder = createWebserviceCall(request, apiParams);
-			Response response = getWebserviceResponse(request, apiParams, invocationBuilder);
-			
-			final InvokeRequest invokeRequest = createQueueFuncRequest (input, apiParams, response);
+			final InvokeRequest invokeRequest = callWSAndCreateQueueFuncRequest (input, apiParams, invocationBuilder);
 			final InvokeResult invoke = AWSLambdaAsyncClientBuilder.defaultClient().invoke(invokeRequest);
 			
 			logger.info("After calling message queue function: " + invoke.getStatusCode());
@@ -52,9 +51,10 @@ public class ServicesWSHandler implements RequestHandler<ServicesWSInput, Void> 
 		return null;
 	}
 	
-	private InvokeRequest createQueueFuncRequest(ServicesWSInput input, APIParameters apiParams, Response response) throws Exception {
+	private InvokeRequest callWSAndCreateQueueFuncRequest(ServicesWSInput input, APIParameters apiParams, Builder invocationBuilder) throws Exception {
 		InvokeRequest invokeRequest = null;
 		try {
+			Response response = getWebserviceResponse(input.getRequest(), apiParams, invocationBuilder);
 			final String webServiceResponse = parseWebServiceResponse(apiParams, response);
 			invokeRequest = createLambdaInput(input, webServiceResponse, true);
 		} catch (FrontMException e) {

@@ -1,8 +1,9 @@
 package com.frontm.util;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Matchers.anyObject;
+import static org.junit.Assert.fail;
 import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyObject;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
@@ -13,6 +14,7 @@ import static org.powermock.api.mockito.PowerMockito.mockStatic;
 import java.net.URI;
 import java.util.Arrays;
 
+import javax.ws.rs.ProcessingException;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Invocation;
@@ -170,13 +172,28 @@ public class WebServiceUtilTest {
 		input.setDomain(domain);
 		input.setService(service);
 
-		WebServiceUtil.getWebserviceResponse(input, apiParameters, invocationBuilder);
-		verify(invocationBuilder, times(1)).get();
-		resetMocks();
+		try {
+			WebServiceUtil.getWebserviceResponse(input, apiParameters, invocationBuilder);
+			verify(invocationBuilder, times(1)).get();
+			resetMocks();
+			
+			apiParameters.setMethod("POST");
+			WebServiceUtil.getWebserviceResponse(input, apiParameters, invocationBuilder);
+			verify(invocationBuilder, times(1)).post(anyObject());
+			resetMocks();
+		} catch (FrontMException e) {
+			fail("No exception should occur");
+		}
 		
-		apiParameters.setMethod("POST");
-		WebServiceUtil.getWebserviceResponse(input, apiParameters, invocationBuilder);
-		verify(invocationBuilder, times(1)).post(anyObject());
+		final String errorMsg = "Expected exception";
+		when(invocationBuilder.get()).thenThrow(new ProcessingException(errorMsg));
+		try {
+			apiParameters.setMethod("GET");
+			WebServiceUtil.getWebserviceResponse(input, apiParameters, invocationBuilder);
+			fail("Exception should occur");
+		} catch (FrontMException e) {
+			assertEquals(errorMsg, e.getMessage());
+		}
 	}
 	
 	@Test

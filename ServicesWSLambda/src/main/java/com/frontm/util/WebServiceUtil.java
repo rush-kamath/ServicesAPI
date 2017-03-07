@@ -45,28 +45,33 @@ public class WebServiceUtil {
 	}
 
 	public static Response getWebserviceResponse(FrontMRequest input, APIParameters apiParams,
-			Invocation.Builder invocationBuilder) {
+			Invocation.Builder invocationBuilder) throws FrontMException {
 		Response response = null;
-		if (apiParams.isGetMethod()) {
-			logger.debug("Invoking the webservce with GET method");
-			response = invocationBuilder.get();
-		} else {
-			logger.debug("Invoking the webservice with POST method");
-			String jsonBody = null;
-
-			final Parameters parameters = input.getParameters();
-			if (parameters != null) {
-				jsonBody = parameters.getBodyAsString();
-				if (jsonBody != null) {
-					if (apiParams.isXMLFormat()) {
-						// TODO JSON to XML conversion
+		try {
+			if (apiParams.isGetMethod()) {
+				logger.debug("Invoking the webservce with GET method");
+				response = invocationBuilder.get();
+			} else {
+				logger.debug("Invoking the webservice with POST method");
+				String jsonBody = null;
+				
+				final Parameters parameters = input.getParameters();
+				if (parameters != null) {
+					jsonBody = parameters.getBodyAsString();
+					if (jsonBody != null) {
+						if (apiParams.isXMLFormat()) {
+							// TODO JSON to XML conversion
+						}
 					}
 				}
+				response = invocationBuilder.post(Entity.entity(jsonBody, MediaType.APPLICATION_JSON));
 			}
+			return response;
 
-			response = invocationBuilder.post(Entity.entity(jsonBody, MediaType.APPLICATION_JSON));
+		} catch(Exception e) {
+			logger.error("Error occured while invoking webservice: ", e);
+			throw new FrontMException(e.getMessage());
 		}
-		return response;
 	}
 
 	public static Invocation.Builder createWebserviceCall(FrontMRequest input, APIParameters apiParams) {
