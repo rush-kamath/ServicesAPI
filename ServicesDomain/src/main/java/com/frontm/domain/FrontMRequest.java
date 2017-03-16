@@ -12,6 +12,7 @@ public class FrontMRequest {
 	private String service;
 	private String username;
 	private String password;
+	private String filter;
 	private Parameters parameters;
 
 	public static class Parameters {
@@ -127,10 +128,18 @@ public class FrontMRequest {
 		this.parameters = parameters;
 	}
 
+	public String getFilter() {
+		return filter;
+	}
+
+	public void setFilter(String filter) {
+		this.filter = filter;
+	}
+
 	@Override
 	public String toString() {
 		return "FrontMRequest [domain=" + domain + ", service=" + service + ", username=" + username + ", password="
-				+ password + ", parameters=" + parameters + "]";
+				+ password + ", filter=" + filter + ", parameters=" + parameters + "]";
 	}
 
 }

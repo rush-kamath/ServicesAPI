@@ -10,6 +10,7 @@ import javax.ws.rs.core.Response;
 
 import org.apache.log4j.Logger;
 
+import com.amazonaws.services.lambda.AWSLambdaAsync;
 import com.amazonaws.services.lambda.AWSLambdaAsyncClientBuilder;
 import com.amazonaws.services.lambda.model.InvocationType;
 import com.amazonaws.services.lambda.model.InvokeRequest;
@@ -26,6 +27,7 @@ import com.frontm.domain.MessageQueue.Item;
 import com.frontm.domain.MessageQueue.Item.Content;
 import com.frontm.domain.ServicesWSInput;
 import com.frontm.exception.FrontMException;
+import com.frontm.util.JsonFilterUtil;
 
 public class ServicesWSHandler implements RequestHandler<ServicesWSInput, Void> {
 	private static final Logger logger = Logger.getLogger(ServicesWSHandler.class);
@@ -41,31 +43,55 @@ public class ServicesWSHandler implements RequestHandler<ServicesWSInput, Void> 
 			final FrontMRequest request = input.getRequest();
 
 			Invocation.Builder invocationBuilder = createWebserviceCall(request, apiParams);
-			final InvokeRequest invokeRequest = callWSAndCreateQueueFuncRequest (input, apiParams, invocationBuilder);
-			final InvokeResult invoke = AWSLambdaAsyncClientBuilder.defaultClient().invoke(invokeRequest);
-			
-			logger.info("After calling message queue function: " + invoke.getStatusCode());
+			final InvokeRequest invokeRequest = callWSFilterAndCreateLambdaRequest(input, apiParams, invocationBuilder);
+			invokeLambda(input, invokeRequest);
 		} catch (Exception e) {
 			logger.error("Error occured:", e);
 		}
 		return null;
 	}
-	
-	private InvokeRequest callWSAndCreateQueueFuncRequest(ServicesWSInput input, APIParameters apiParams, Builder invocationBuilder) throws Exception {
-		InvokeRequest invokeRequest = null;
+
+	private void invokeLambda(ServicesWSInput input, final InvokeRequest invokeRequest) throws Exception {
+		final AWSLambdaAsync client = AWSLambdaAsyncClientBuilder.defaultClient();
+		InvokeResult invokeResult = null; 
 		try {
-			Response response = getWebserviceResponse(input.getRequest(), apiParams, invocationBuilder);
-			final String webServiceResponse = parseWebServiceResponse(apiParams, response);
-			invokeRequest = createLambdaInput(input, webServiceResponse, true);
-		} catch (FrontMException e) {
-			logger.info("Not OK response from web service: " + e.getMessage());
-			invokeRequest = createLambdaInput(input, e.getMessage(), false);
+			invokeResult = client.invoke(invokeRequest);
+		} catch (Exception e) {
+			final InvokeRequest errorInput = logAndCreateErrorLambdaInput(input, e, "Error while invoking mesage queue lambda");
+			invokeResult = client.invoke(errorInput);
 		}
-		return invokeRequest;
+		logger.info("After calling message queue lambda: " + invokeResult.getStatusCode());
 	}
 
-	private InvokeRequest createLambdaInput(ServicesWSInput input, final String webServiceResponse, boolean isOKResponse)
-			throws JsonProcessingException {
+	private InvokeRequest callWSFilterAndCreateLambdaRequest(ServicesWSInput input, APIParameters apiParams,
+			Builder invocationBuilder) throws Exception {
+		try {
+			final FrontMRequest request = input.getRequest();
+			Response response = getWebserviceResponse(request, apiParams, invocationBuilder);
+			final String webServiceJson = parseWebServiceResponse(apiParams, response);
+			final String filteredJson = filterJson(request, webServiceJson);
+			return createLambdaInput(input, filteredJson, true);
+		} catch (FrontMException e) {
+			return logAndCreateErrorLambdaInput(input, e, "Error while creating mesage queue lambda request");
+		}
+	}
+
+	private InvokeRequest logAndCreateErrorLambdaInput(ServicesWSInput input, Exception e, String logMsg) throws JsonProcessingException {
+		final String errorMessage = e.getMessage();
+		logger.info(logMsg + ": " + errorMessage);
+		return createLambdaInput(input, errorMessage, false);
+	}
+
+	private String filterJson(FrontMRequest request, final String webServiceJson) throws FrontMException {
+		final String jsonFilter = request.getFilter();
+		if (jsonFilter == null || jsonFilter.isEmpty()) {
+			return webServiceJson;
+		}
+		return JsonFilterUtil.filterJson(webServiceJson, jsonFilter);
+	}
+
+	private InvokeRequest createLambdaInput(ServicesWSInput input, final String webServiceResponse,
+			boolean isOKResponse) throws JsonProcessingException {
 		MessageQueue messageQueue = createMessageQueueResponse(input.getRequest(), webServiceResponse, isOKResponse);
 		final String msgQueueJson = new ObjectMapper().writeValueAsString(messageQueue);
 		logger.info(msgQueueJson);
@@ -77,10 +103,11 @@ public class ServicesWSHandler implements RequestHandler<ServicesWSInput, Void> 
 		return invokeRequest;
 	}
 
-	private MessageQueue createMessageQueueResponse(FrontMRequest frontMRequest, final String webServiceResponse, boolean isOKResponse) {
+	private MessageQueue createMessageQueueResponse(FrontMRequest frontMRequest, final String webServiceResponse,
+			boolean isOKResponse) {
 		final Content content = new Content();
 		content.setContentType(MSG_Q_CONTENT_TYPE);
-		if(isOKResponse) {
+		if (isOKResponse) {
 			content.setDetails(webServiceResponse);
 		} else {
 			content.setError(webServiceResponse);
