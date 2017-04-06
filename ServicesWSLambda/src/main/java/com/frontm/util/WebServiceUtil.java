@@ -1,6 +1,9 @@
 package com.frontm.util;
 
-import java.util.List;
+import static com.frontm.util.StringUtil.isNotEmpty;
+import static com.frontm.util.StringUtil.processQueryString;
+
+import java.util.Map;
 
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
@@ -14,17 +17,14 @@ import javax.ws.rs.core.Response.StatusType;
 import org.apache.log4j.Logger;
 import org.glassfish.jersey.client.authentication.HttpAuthenticationFeature;
 
-import com.frontm.domain.APIParameters;
 import com.frontm.domain.FrontMRequest;
-import com.frontm.domain.FrontMRequest.Parameters;
+import com.frontm.domain.db.APIParameters;
 import com.frontm.exception.FrontMException;
 
 public class WebServiceUtil {
-
 	private static final Logger logger = Logger.getLogger(WebServiceUtil.class);
-	private static final String URL_QUERY_PARAM_DELIM = "=";
 
-	public static String parseWebServiceResponse(APIParameters apiParams, Response response) throws Exception {
+	public static String getWebServiceResponse(APIParameters apiParams, Response response) throws Exception {
 		final String responseContent = response.readEntity(String.class);
 		final int status = response.getStatus();
 		final StatusType statusInfo = response.getStatusInfo();
@@ -32,19 +32,25 @@ public class WebServiceUtil {
 		logger.debug("web service response: " + responseContent);
 
 		if (Response.Status.OK.getStatusCode() == status) {
-			if (apiParams.isJsonFormat()) {
-				return responseContent;
-			} else {
-				logger.info("parsing the XML to JSON");
-				return ConvertXMLToJson.convert(responseContent, apiParams.getMappingJson()).toString();
-			}
+			return responseContent;
 		} else {
 			logger.info("throwing FrontMException exception since status is: " + statusInfo);
 			throw new FrontMException(status + " " + statusInfo + " " + responseContent);
 		}
 	}
 
-	public static Response getWebserviceResponse(FrontMRequest input, APIParameters apiParams,
+
+	public static String parseWebServiceResponse(APIParameters apiParams, final String responseContent) throws Exception {
+		if (apiParams.isJsonFormat()) {
+			return responseContent;
+		} else {
+			logger.info("parsing the XML to JSON");
+			return ConvertXMLToJson.convert(responseContent, apiParams.getMappingJson()).toString();
+		}
+	}
+	
+
+	public static Response callWebservice(FrontMRequest input, APIParameters apiParams,
 			Invocation.Builder invocationBuilder) throws FrontMException {
 		Response response = null;
 		try {
@@ -53,22 +59,17 @@ public class WebServiceUtil {
 				response = invocationBuilder.get();
 			} else {
 				logger.debug("Invoking the webservice with POST method");
-				String jsonBody = null;
-				
-				final Parameters parameters = input.getParameters();
-				if (parameters != null) {
-					jsonBody = parameters.getBodyAsString();
-					if (jsonBody != null) {
-						if (apiParams.isXMLFormat()) {
-							// TODO JSON to XML conversion
-						}
+				String jsonBody = input.getBodyAsString();
+				if (jsonBody != null) {
+					if (apiParams.isXMLFormat()) {
+						// TODO JSON to XML conversion
 					}
 				}
 				response = invocationBuilder.post(Entity.entity(jsonBody, MediaType.APPLICATION_JSON));
 			}
 			return response;
 
-		} catch(Exception e) {
+		} catch (Exception e) {
 			logger.error("Error occured while invoking webservice: ", e);
 			throw new FrontMException(e.getMessage());
 		}
@@ -86,7 +87,7 @@ public class WebServiceUtil {
 		}
 
 		WebTarget target = client.target(apiParams.getUrl());
-		target = addParamsToWebTarget(input.getParameters(), target);
+		target = addParamsToWebTarget(input, target);
 		logger.info("Final Uri" + target.getUri().toString());
 
 		Invocation.Builder invocationBuilder = target
@@ -102,45 +103,20 @@ public class WebServiceUtil {
 	 * "=". If an element of the array does not follow this format, it will be
 	 * ignored and will not be available in the final webservice uri
 	 */
-	static WebTarget addParamsToWebTarget(Parameters parameters, WebTarget originalTarget) {
-		if (parameters == null) {
-			return originalTarget;
-		}
-
+	static WebTarget addParamsToWebTarget(FrontMRequest request, WebTarget originalTarget) {
 		WebTarget finalTarget = originalTarget;
-		final String object = parameters.getObject();
+		final String object = request.getObject();
 		if (isNotEmpty(object)) {
 			logger.debug("Added " + object + " to path");
 			finalTarget = finalTarget.path(object);
 		}
 
-		final List<String> queryStrings = parameters.getQueryString();
-		if (queryStrings == null || queryStrings.isEmpty()) {
-			return finalTarget;
+		final Map<String, String> queryMap = processQueryString(request.getQueryString());
+		for(String key : queryMap.keySet()) {
+			String value = queryMap.get(key);
+			finalTarget = finalTarget.queryParam(key, value);
+			logger.info("Added query string to path: " + key + "=" + value);
 		}
-
-		logger.debug("Added query string to path: " + queryStrings);
-		for (String queryString : queryStrings) {
-			if (queryString == null) {
-				continue;
-			}
-
-			final String[] split = queryString.split(URL_QUERY_PARAM_DELIM);
-			if (split.length < 2) {
-				continue;
-			}
-			finalTarget = finalTarget.queryParam(split[0], split[1]);
-		}
-
 		return finalTarget;
 	}
-
-	public static boolean isNotEmpty(String string) {
-		return !isEmpty(string);
-	}
-
-	public static boolean isEmpty(String string) {
-		return string == null || string.trim().isEmpty();
-	}
-
 }

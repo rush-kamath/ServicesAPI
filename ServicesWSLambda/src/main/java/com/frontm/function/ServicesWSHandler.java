@@ -1,135 +1,159 @@
 package com.frontm.function;
 
+import static com.frontm.util.MessageQueueLambdaUtil.createLambdaInput;
+import static com.frontm.util.MessageQueueLambdaUtil.invokeLambda;
+import static com.frontm.util.MessageQueueLambdaUtil.logAndCreateErrorLambdaInput;
+import static com.frontm.util.WebServiceUtil.callWebservice;
 import static com.frontm.util.WebServiceUtil.createWebserviceCall;
-import static com.frontm.util.WebServiceUtil.getWebserviceResponse;
+import static com.frontm.util.WebServiceUtil.getWebServiceResponse;
 import static com.frontm.util.WebServiceUtil.parseWebServiceResponse;
+import static com.frontm.util.StringUtil.isEmpty;
+
+import java.util.List;
+import java.util.Map;
 
 import javax.ws.rs.client.Invocation;
-import javax.ws.rs.client.Invocation.Builder;
 import javax.ws.rs.core.Response;
 
 import org.apache.log4j.Logger;
 
-import com.amazonaws.services.lambda.AWSLambdaAsync;
-import com.amazonaws.services.lambda.AWSLambdaAsyncClientBuilder;
-import com.amazonaws.services.lambda.model.InvocationType;
 import com.amazonaws.services.lambda.model.InvokeRequest;
-import com.amazonaws.services.lambda.model.InvokeResult;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.frontm.domain.APIParameters;
+import com.frontm.db.APIParamsDAO;
+import com.frontm.db.CacheTableDAO;
+import com.frontm.db.ConversationDAO;
 import com.frontm.domain.FrontMRequest;
-import com.frontm.domain.FrontMRequest.Parameters;
-import com.frontm.domain.MessageQueue;
-import com.frontm.domain.MessageQueue.Item;
-import com.frontm.domain.MessageQueue.Item.Content;
-import com.frontm.domain.ServicesWSInput;
+import com.frontm.domain.db.APIParameters;
+import com.frontm.domain.db.Conversation;
 import com.frontm.exception.FrontMException;
+import com.frontm.util.JaxbParserUtil;
 import com.frontm.util.JsonFilterUtil;
 
-public class ServicesWSHandler implements RequestHandler<ServicesWSInput, Void> {
+public class ServicesWSHandler implements RequestHandler<FrontMRequest, Void> {
 	private static final Logger logger = Logger.getLogger(ServicesWSHandler.class);
-	private static final String MSG_Q_CONTENT_TYPE = "150";
-	private static final String MSG_Q_RET_VAL = "NONE";
-	private static final String MSG_Q_CREATED_BY = "AgentM";
+	
+	static final String BUILD_CACHE_COMMAND = "BuildCache";
+	static final String GET_DATA_FROM_SERVICE_COMMAND = "GetDataFromService";
+	private static final String INVALID_FORMAT_IN_DB = "Incorrect data in DB table APIParams. Only XML and JSON formats supported currently";
+	private static final String INVALID_METHOD_IN_DB = "Incorrect data in DB table APIParams. Only GET and POST methods supported currently";
+	private static final String MISSING_MAPPING_FOR_XML_FORMAT = "Incorrect data in DB table APIParams. XML format requires mapping information for JSON conversion";
+	private static final String BUILD_CACHE_JSON = "Build cache command for webservices with JSON response is currently not supported";
+	private static final String BUILD_CACHE_REQUIRED_FILEDS = "Incorrect data in DB table APIParams. Table and class name are required fields for Build Cache Command";
+	private static final String UNKNOWN_COMMAND = "Only " + BUILD_CACHE_COMMAND + " and " + GET_DATA_FROM_SERVICE_COMMAND + " commands supported in this lambda";
+
+	private APIParamsDAO apiParamsDao;
+	private ConversationDAO conversationDao; 
 
 	@Override
-	public Void handleRequest(ServicesWSInput input, Context context) {
-		logger.debug("Input parameters in the request: " + input);
+	public Void handleRequest(FrontMRequest request, Context context) {
+		logger.info("Input parameters in the request: " + request);
 		try {
-			final APIParameters apiParams = input.getApiParameters();
-			final FrontMRequest request = input.getRequest();
-
-			Invocation.Builder invocationBuilder = createWebserviceCall(request, apiParams);
-			final InvokeRequest invokeRequest = callWSFilterAndCreateLambdaRequest(input, apiParams, invocationBuilder);
-			invokeLambda(input, invokeRequest);
+			InvokeRequest invokeRequest = processInput(request);
+			invokeLambda(request, invokeRequest);
 		} catch (Exception e) {
 			logger.error("Error occured:", e);
 		}
 		return null;
 	}
 
-	private void invokeLambda(ServicesWSInput input, final InvokeRequest invokeRequest) throws Exception {
-		final AWSLambdaAsync client = AWSLambdaAsyncClientBuilder.defaultClient();
-		InvokeResult invokeResult = null; 
+	private InvokeRequest processInput(FrontMRequest request) throws Exception, JsonProcessingException {
+		InvokeRequest invokeRequest = null;
 		try {
-			invokeResult = client.invoke(invokeRequest);
-		} catch (Exception e) {
-			final InvokeRequest errorInput = logAndCreateErrorLambdaInput(input, e, "Error while invoking mesage queue lambda");
-			invokeResult = client.invoke(errorInput);
-		}
-		logger.info("After calling message queue lambda: " + invokeResult.getStatusCode());
-	}
+			APIParameters apiParams = getApiParamsDao().getApiParamsFromDB(request);
+			logger.debug("Details from the DB" + apiParams.toString());
+			doValidations(apiParams, request);
 
-	private InvokeRequest callWSFilterAndCreateLambdaRequest(ServicesWSInput input, APIParameters apiParams,
-			Builder invocationBuilder) throws Exception {
-		try {
-			final FrontMRequest request = input.getRequest();
-			Response response = getWebserviceResponse(request, apiParams, invocationBuilder);
-			final String webServiceJson = parseWebServiceResponse(apiParams, response);
-			final String filteredJson = filterJson(request, webServiceJson);
-			return createLambdaInput(input, filteredJson, true);
+			final Invocation.Builder invocationBuilder = createWebserviceCall(request, apiParams);
+			final Response response = callWebservice(request, apiParams, invocationBuilder);
+			final String webServiceResponse = getWebServiceResponse(apiParams, response);
+
+			switch (request.getCommandName()) {
+			case BUILD_CACHE_COMMAND:
+				invokeRequest = buildCacheAndLambdaInput(webServiceResponse, apiParams, request);
+
+				break;
+			case GET_DATA_FROM_SERVICE_COMMAND:
+				invokeRequest = processWSRespAndCreateLambdaInput(webServiceResponse, apiParams, request);
+				break;
+			}
 		} catch (FrontMException e) {
-			return logAndCreateErrorLambdaInput(input, e, "Error while creating mesage queue lambda request");
+			invokeRequest = logAndCreateErrorLambdaInput(request, e, "Error while processing");
 		}
-	}
-
-	private InvokeRequest logAndCreateErrorLambdaInput(ServicesWSInput input, Exception e, String logMsg) throws JsonProcessingException {
-		final String errorMessage = e.getMessage();
-		logger.info(logMsg + ": " + errorMessage);
-		return createLambdaInput(input, errorMessage, false);
-	}
-
-	private String filterJson(FrontMRequest request, final String webServiceJson) throws FrontMException {
-		final String jsonFilter = request.getFilter();
-		if (jsonFilter == null || jsonFilter.isEmpty()) {
-			return webServiceJson;
-		}
-		return JsonFilterUtil.filterJson(webServiceJson, jsonFilter);
-	}
-
-	private InvokeRequest createLambdaInput(ServicesWSInput input, final String webServiceResponse,
-			boolean isOKResponse) throws JsonProcessingException {
-		MessageQueue messageQueue = createMessageQueueResponse(input.getRequest(), webServiceResponse, isOKResponse);
-		final String msgQueueJson = new ObjectMapper().writeValueAsString(messageQueue);
-		logger.info(msgQueueJson);
-
-		InvokeRequest invokeRequest = new InvokeRequest();
-		invokeRequest.setFunctionName(System.getenv("MSG_FUNCTION"));
-		invokeRequest.setPayload(msgQueueJson);
-		invokeRequest.setInvocationType(InvocationType.Event);
 		return invokeRequest;
 	}
 
-	private MessageQueue createMessageQueueResponse(FrontMRequest frontMRequest, final String webServiceResponse,
-			boolean isOKResponse) {
-		final Content content = new Content();
-		content.setContentType(MSG_Q_CONTENT_TYPE);
-		if (isOKResponse) {
-			content.setDetails(webServiceResponse);
-		} else {
-			content.setError(webServiceResponse);
+	private InvokeRequest processWSRespAndCreateLambdaInput(final String webServiceResponse, APIParameters apiParams,
+			FrontMRequest request) throws Exception {
+		final String webServiceJson = parseWebServiceResponse(apiParams, webServiceResponse);
+		final String filteredJson = JsonFilterUtil.filterJson(webServiceJson, request.getFilter());
+		return createLambdaInput(request, filteredJson, true);
+	}
+
+	private InvokeRequest buildCacheAndLambdaInput(String webServiceResponse, APIParameters apiParams,
+			FrontMRequest request) throws FrontMException, JsonProcessingException {
+		final Conversation conversation = request.getConversation();
+		if(conversation.isAnyFieldExceptUuidPresent()) {
+			conversation.setConversationOwner(request.getUserUuid());
+			getConversationDao().saveConversation(conversation);
 		}
-
-		final Item item = new Item();
-		item.setCreatedOn(System.currentTimeMillis());
-		item.setContent(content);
-		item.setNotifyToOwner(true);
-		item.setCreatedBy(MSG_Q_CREATED_BY);
-
-		final Parameters parameters = frontMRequest.getParameters();
-		if (parameters != null) {
-			item.setUserUuid(parameters.getUserUuid());
-			item.setConversation(parameters.getConversationId());
-			item.setPush(parameters.getPush());
+		final List<Map<String, String>> xmlContents = JaxbParserUtil.parseXMLToDBCacheItems(webServiceResponse,
+				apiParams.getClassName(), request.getInstanceId());
+		CacheTableDAO.insertItemsIntoDB(xmlContents, apiParams.getTableName());
+		return createLambdaInput(request, "Building cache for " + request.getService() + " service is completed.",
+				true);
+	}
+	
+	private void doValidations(APIParameters apiParams, FrontMRequest request) throws FrontMException {
+		if (!apiParams.isXMLFormat() && !apiParams.isJsonFormat()) {
+			throw new FrontMException(INVALID_FORMAT_IN_DB);
 		}
+		
+		if (!apiParams.isGetMethod() && !apiParams.isPostMethod()) {
+			throw new FrontMException(INVALID_METHOD_IN_DB);
+		}
+		
+		switch (request.getCommandName()) {
+		case BUILD_CACHE_COMMAND:
+			if (apiParams.isJsonFormat()) {
+				throw new FrontMException(BUILD_CACHE_JSON);
+			}
+			if(isEmpty(apiParams.getTableName()) || isEmpty(apiParams.getClassName())) {
+				throw new FrontMException(BUILD_CACHE_REQUIRED_FILEDS);
+			}
 
-		final MessageQueue messageQueue = new MessageQueue();
-		messageQueue.setTableName(System.getenv("MSG_Q_TABLE_NAME"));
-		messageQueue.setReturnValues(MSG_Q_RET_VAL);
-		messageQueue.setItem(item);
-		return messageQueue;
+			break;
+		case GET_DATA_FROM_SERVICE_COMMAND:
+			if (apiParams.isXMLFormat() && apiParams.getMapping() == null) {
+				throw new FrontMException(MISSING_MAPPING_FOR_XML_FORMAT);
+			}
+			break;
+		default:
+			throw new FrontMException(UNKNOWN_COMMAND);
+		}
+	}
+
+	public APIParamsDAO getApiParamsDao() {
+		if (this.apiParamsDao == null) {
+			this.apiParamsDao = new APIParamsDAO();
+		}
+		return apiParamsDao;
+	}
+
+	public ConversationDAO getConversationDao() {
+		if (this.conversationDao == null) {
+			this.conversationDao = new ConversationDAO();
+		}
+		return conversationDao;
+	}
+
+	// for testing
+	void setApiParamsDao(APIParamsDAO apiParamsDao) {
+		this.apiParamsDao = apiParamsDao;
+	}
+
+	void setConversationDao(ConversationDAO conversationDao) {
+		this.conversationDao = conversationDao;
 	}
 }

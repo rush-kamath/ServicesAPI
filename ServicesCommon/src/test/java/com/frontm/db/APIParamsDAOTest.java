@@ -18,7 +18,7 @@ import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBQueryExpression;
 import com.amazonaws.services.dynamodbv2.datamodeling.PaginatedQueryList;
-import com.frontm.domain.APIParameters;
+import com.frontm.domain.db.APIParameters;
 import com.frontm.domain.FrontMRequest;
 
 @SuppressWarnings("unchecked")

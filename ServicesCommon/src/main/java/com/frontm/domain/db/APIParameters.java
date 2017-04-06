@@ -1,4 +1,4 @@
-package com.frontm.domain;
+package com.frontm.domain.db;
 
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBHashKey;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBRangeKey;
@@ -8,8 +8,9 @@ import com.amazonaws.util.json.Jackson;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.frontm.domain.MapConverter;
 
-@DynamoDBTable(tableName="frontm-mobilehub-1030065648-APIParameters")
+@DynamoDBTable(tableName = "frontm-mobilehub-1030065648-APIParameters")
 public class APIParameters {
 	private String domain;
 	private String service;
@@ -20,17 +21,21 @@ public class APIParameters {
 	private String url;
 	private String uuid;
 	private String mapping;
+	private boolean cached;
+	private long expirationTime;
+	private String tableName;
+	private String className;
 
 	public static final String JSON_FORMAT = "JSON";
 	public static final String XML_FORMAT = "XML";
-	
+
 	public static final String GET_METHOD = "GET";
 	public static final String POST_METHOD = "POST";
 
 	public APIParameters() {
-	
+
 	}
-	
+
 	public APIParameters(String domain, String service) {
 		this.domain = domain;
 		this.service = service;
@@ -102,13 +107,88 @@ public class APIParameters {
 		this.uuid = uuid;
 	}
 
+	public APIParameters withDomain(String domain) {
+		this.domain = domain;
+		return this;
+	}
+
+	public boolean isJsonFormat() {
+		return JSON_FORMAT.equals(this.getFormat());
+	}
+
+	public boolean isXMLFormat() {
+		return XML_FORMAT.equals(this.getFormat());
+	}
+
+	public boolean isGetMethod() {
+		return GET_METHOD.equals(this.getMethod());
+	}
+
+	public boolean isPostMethod() {
+		return POST_METHOD.equals(this.getMethod());
+	}
+
+	@DynamoDBTypeConverted(converter = MapConverter.class)
+	public String getMapping() {
+		return mapping;
+	}
+
+	public void setMapping(String mapping) {
+		this.mapping = mapping;
+	}
+
+	@JsonIgnore
+	public JsonNode getMappingJson() throws Exception {
+		// mapping is not a required field for JSON formats. If it is null, do
+		// not attempt creating JSON node.
+		if (mapping == null) {
+			return null;
+		}
+		ObjectMapper objectMapper = new ObjectMapper();
+		return objectMapper.readTree(mapping);
+	}
+
+	public boolean isCached() {
+		return cached;
+	}
+
+	public void setCached(boolean cached) {
+		this.cached = cached;
+	}
+
+	public long getExpirationTime() {
+		return expirationTime;
+	}
+
+	public void setExpirationTime(long expirationTime) {
+		this.expirationTime = expirationTime;
+	}
+
+	public String getTableName() {
+		return tableName;
+	}
+
+	public void setTableName(String tableName) {
+		this.tableName = tableName;
+	}
+
+	public String getClassName() {
+		return className;
+	}
+
+	public void setClassName(String className) {
+		this.className = className;
+	}
+
 	@Override
 	public String toString() {
 		return "APIParameters [domain=" + domain + ", service=" + service + ", apiKey=" + apiKey
 				+ ", flattenResponseRequired=" + flattenResponseRequired + ", format=" + format + ", method=" + method
-				+ ", url=" + url + ", uuid=" + uuid + ", mapping=" + Jackson.toJsonPrettyString(mapping) + "]";
+				+ ", url=" + url + ", uuid=" + uuid + ", mapping=" + Jackson.toJsonPrettyString(mapping) + ", cached="
+				+ cached + ", expirationTime=" + expirationTime + ", tableName=" + tableName + ", className="
+				+ className + "]";
 	}
-	
+
 	@Override
 	public int hashCode() {
 		final int prime = 31;
@@ -140,44 +220,4 @@ public class APIParameters {
 		return true;
 	}
 
-	// helper methods
-	public APIParameters withDomain(String domain) {
-		this.domain = domain;
-		return this;
-	}
-	
-	public boolean isJsonFormat() {
-		return JSON_FORMAT.equals(this.getFormat());
-	}
-	
-	public boolean isXMLFormat() {
-		return XML_FORMAT.equals(this.getFormat());
-	}
-	
-	public boolean isGetMethod() {
-		return GET_METHOD.equals(this.getMethod());
-	}
-	
-	public boolean isPostMethod() {
-		return POST_METHOD.equals(this.getMethod());
-	}
-
-	@DynamoDBTypeConverted(converter = MapConverter.class)
-	public String getMapping() {
-		return mapping;
-	}
-	
-	public void setMapping(String mapping) {
-		this.mapping = mapping;
-	}
-	
-	@JsonIgnore
-	public JsonNode getMappingJson() throws Exception {
-		 // mapping is not a required field for JSON formats. If it is null, do not attempt creating JSON node.
-		if(mapping == null) {
-			return null;
-		}
-		ObjectMapper objectMapper = new ObjectMapper();
-		return objectMapper.readTree(mapping);
-	}
 }

@@ -1,6 +1,7 @@
 package com.frontm.util;
 
 import static com.jayway.jsonpath.Criteria.where;
+import static com.frontm.util.StringUtil.isEmpty;
 import static com.jayway.jsonpath.Filter.filter;
 
 import java.util.Arrays;
@@ -56,6 +57,10 @@ public class JsonFilterUtil {
 	 */
 	public static String filterJson(String inputJson, String filterInput) throws FrontMException {
 		try {
+			if (isEmpty(filterInput)) {
+				return inputJson;
+			}
+
 			long startMS = System.currentTimeMillis();
 			FrontMFilter filter = parseFilter(filterInput);
 			logger.info(filter + "Time taken to parse: " + (System.currentTimeMillis() - startMS));
