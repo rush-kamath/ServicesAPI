@@ -1,112 +1,158 @@
 package com.frontm.function;
 
+import static com.frontm.exception.FrontMException.FRONTM_ERROR_CODE.MISSING_INPUT;
+import static com.frontm.util.StringUtil.isEmpty;
+
+import java.util.HashMap;
+import java.util.Map;
+
 import org.apache.log4j.Logger;
 
 import com.amazonaws.services.lambda.AWSLambdaAsyncClientBuilder;
-import com.amazonaws.services.lambda.model.InvocationType;
 import com.amazonaws.services.lambda.model.InvokeRequest;
 import com.amazonaws.services.lambda.model.InvokeResult;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.frontm.db.APIParamsDAO;
-import com.frontm.domain.APIParameters;
+import com.frontm.db.AgentStateDAO;
+import com.frontm.db.CommandsDAO;
+import com.frontm.domain.AgentGuardLambdaInput;
 import com.frontm.domain.FrontMRequest;
-import com.frontm.domain.FrontMRequest.Parameters;
-import com.frontm.domain.ServicesWSInput;
+import com.frontm.domain.db.AgentState;
+import com.frontm.domain.db.Command;
+import com.frontm.domain.db.Conversation;
 import com.frontm.exception.FrontMException;
+import com.frontm.util.LambdaUtil;
 
-// TODO list
-/* 
- * 4. add logic for XML body processing - check with G
-*/
-public class ServicesHandler implements RequestHandler<FrontMRequest, String> {
+public class ServicesHandler implements RequestHandler<AgentGuardLambdaInput, String> {
 	private static final Logger logger = Logger.getLogger(ServicesHandler.class);
-
-	static final String MISSING_SERVICE_DOMAIN_MESSAGE = "Domain and Service are required inputs. One or both are empty in the request";
-	static final String MISSING_USER_UUID_MESSAGE = "User uuid is a required input. It is empty in the request";
-	static final String INVALID_FORMAT_IN_DB = "Incorrect data in DB table APIParams. Only XML and JSON formats supported currently";
-	static final String INVALID_METHOD_IN_DB = "Incorrect data in DB table APIParams. Only GET and POST methods supported currently";
-	private APIParamsDAO apiParamsDao;
+	private AgentStateDAO agentStateDao;
+	private CommandsDAO commandsDao;
 
 	@Override
-	public String handleRequest(FrontMRequest input, Context context) {
+	public String handleRequest(AgentGuardLambdaInput input, Context context) {
 		String returnMsg = null;
 		logger.info("Input parameters in the request: " + input);
 
 		try {
 			validateInput(input);
 
-			APIParameters apiParams = getApiParamsDao().getApiParamsFromDB(input);
-			logger.debug("Details from the DB" + apiParams.toString());
-			validateApiParams(apiParams);
+			Command command = getCommandsDao().getCommandFromDB(input.getCommand());
+			logger.info("Command Details from the DB" + command);
 
-			// call the webservice lambda
-			InvokeRequest invokeRequest = createLambdaInput(input, apiParams);
+			AgentState agentState = null;
+			final String inputInstanceId = input.getInstanceId();
+			if (isEmpty(inputInstanceId)) {
+				agentState = AgentState.createNewAgent(input.getCreatorInstanceId(), input.getContexts());
+				getAgentStateDao().saveAgentStateInDB(agentState);
+			} else {
+				agentState = getAgentStateDao().getAgentStateFromDB(inputInstanceId);
+			}
+			logger.info("AgentState Details: " + agentState);
+
+			// call the command lambda
+			InvokeRequest invokeRequest = createCommandLambdaInput(agentState, command, input.getParameters());
 			final InvokeResult invoke = AWSLambdaAsyncClientBuilder.defaultClient().invoke(invokeRequest);
+			logger.info("After calling command function: " + invoke.getStatusCode());
 
-			logger.info("After calling services ws function: " + invoke.getStatusCode());
-			returnMsg = "Services API processing is in progress";
+			returnMsg = createOutputJson(agentState.getInstanceId(), null);
 
-		} catch (FrontMException e) {
-			logger.error(e.getMessage());
-			returnMsg = e.getMessage();
 		} catch (Exception e) {
-			logger.error("Error occured:", e);
-			returnMsg = e.getMessage();
+			returnMsg = createOutputJson(null, e);
 		}
-
 		return returnMsg;
 	}
 
-	private InvokeRequest createLambdaInput(FrontMRequest input, APIParameters apiParams)
-			throws JsonProcessingException {
-		final ServicesWSInput wsInput = new ServicesWSInput(input, apiParams);
-		final String wsInputJson = new ObjectMapper().writeValueAsString(wsInput);
-		logger.info(wsInputJson);
+	private String createOutputJson(String instanceId, Exception exception) {
+		int returnErrorCode = 0;
+		if (exception != null) {
+			if (exception instanceof FrontMException) {
+				returnErrorCode = ((FrontMException) exception).getErrorCode().getErrorNumber();
+			} else {
+				returnErrorCode = FrontMException.FRONTM_ERROR_CODE.UNMAPPED_ERROR.getErrorNumber();
+			}
+		}
 
-		InvokeRequest invokeRequest = new InvokeRequest();
-		invokeRequest.setFunctionName(System.getenv("WS_FUNCTION"));
-		invokeRequest.setPayload(wsInputJson);
-		invokeRequest.setInvocationType(InvocationType.Event);
-		return invokeRequest;
+		Map<String, String> map = new HashMap<>();
+		map.put("instanceId", instanceId);
+		map.put("error", String.valueOf(returnErrorCode));
+		try {
+			return new ObjectMapper().writeValueAsString(map);
+		} catch (JsonProcessingException e) {
+			logger.error("Unable to create ouput json: " + e.getMessage());
+			return null;
+		}
 	}
 
-	private boolean isEmpty(String string) {
-		return string == null || string.trim().isEmpty();
+	private InvokeRequest createCommandLambdaInput(AgentState agentState, Command command, FrontMRequest input)
+			throws FrontMException {
+		try {
+			input.setCommandName(command.getCommandName());
+			input.setInstanceId(agentState.getInstanceId());
+			String lambdaInputJson = new ObjectMapper().writeValueAsString(input);
+			logger.info(lambdaInputJson);
+
+			return LambdaUtil.createInvokeRequest(command.getLambdaName(), lambdaInputJson);
+		} catch (JsonProcessingException e) {
+			throw new FrontMException("Unable to create command lambda input: " + e.getMessage());
+		}
 	}
 
-	private void validateInput(FrontMRequest input) throws FrontMException {
-		if (isEmpty(input.getDomain()) || isEmpty(input.getService())) {
-			throw new FrontMException(MISSING_SERVICE_DOMAIN_MESSAGE);
+	private void validateInput(AgentGuardLambdaInput input) throws FrontMException {
+		validateAndThrowException(input.getCommand(), "Command");
+		validateAndThrowException(input.getCreatorInstanceId(), "Creator Instance Id");
+
+		if (isEmpty(input.getContexts())) {
+			logger.info("Missing input: Contexts");
+			throw new FrontMException(MISSING_INPUT);
+		}
+
+		final FrontMRequest request = input.getParameters();
+		if (request == null) {
+			logger.info("Missing input: Parameters");
+			throw new FrontMException(MISSING_INPUT);
 		}
 		
-		final Parameters parameters = input.getParameters();
-		if(parameters == null || isEmpty(parameters.getUserUuid())) {
-			throw new FrontMException(MISSING_USER_UUID_MESSAGE);
+		validateAndThrowException(request.getDomain(), "Domain");
+		validateAndThrowException(request.getService(), "Service");
+		validateAndThrowException(request.getUserUuid(), "User uuid");
+		
+		final Conversation conversation = request.getConversation();
+		if (conversation == null) {
+			logger.info("Missing input: conversation");
+			throw new FrontMException(MISSING_INPUT);
 		}
+		validateAndThrowException(conversation.getUuid(), "conversation uuid");
 	}
 
-	private void validateApiParams(APIParameters apiParams) throws FrontMException {
-		if (!apiParams.isXMLFormat() && !apiParams.isJsonFormat()) {
-			throw new FrontMException(INVALID_FORMAT_IN_DB);
-		}
-
-		if (!apiParams.isGetMethod() && !apiParams.isPostMethod()) {
-			throw new FrontMException(INVALID_METHOD_IN_DB);
+	private void validateAndThrowException(String inputStr, String fieldName) throws FrontMException {
+		if (isEmpty(inputStr)) {
+			logger.info("Missing input: " + fieldName);
+			throw new FrontMException(MISSING_INPUT);
 		}
 	}
-
-	public APIParamsDAO getApiParamsDao() {
-		if (this.apiParamsDao == null) {
-			this.apiParamsDao = new APIParamsDAO();
+	
+	public AgentStateDAO getAgentStateDao() {
+		if (this.agentStateDao == null) {
+			this.agentStateDao = new AgentStateDAO();
 		}
-		return apiParamsDao;
+		return agentStateDao;
+	}
+
+	public CommandsDAO getCommandsDao() {
+		if (this.commandsDao == null) {
+			this.commandsDao = new CommandsDAO();
+		}
+		return commandsDao;
 	}
 
 	// for testing
-	void setApiParamsDao(APIParamsDAO apiParamsDao) {
-		this.apiParamsDao = apiParamsDao;
+	void setAgentStateDao(AgentStateDAO apiParamsDao) {
+		this.agentStateDao = apiParamsDao;
+	}
+
+	void setCommandsDao(CommandsDAO commandsDao) {
+		this.commandsDao = commandsDao;
 	}
 }

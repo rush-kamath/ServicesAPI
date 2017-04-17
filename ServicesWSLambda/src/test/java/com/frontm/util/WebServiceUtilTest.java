@@ -1,8 +1,9 @@
 package com.frontm.util;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Matchers.anyObject;
+import static org.junit.Assert.fail;
 import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyObject;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
@@ -11,14 +12,15 @@ import static org.mockito.Mockito.when;
 import static org.powermock.api.mockito.PowerMockito.mockStatic;
 
 import java.net.URI;
-import java.util.Arrays;
 
+import javax.ws.rs.ProcessingException;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Invocation;
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.Response.Status;
 
 import org.glassfish.jersey.client.authentication.HttpAuthenticationFeature;
 import org.junit.Before;
@@ -29,8 +31,9 @@ import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.frontm.domain.APIParameters;
 import com.frontm.domain.FrontMRequest;
+import com.frontm.domain.db.APIParameters;
+import com.frontm.exception.FrontMException;
 
 /**
  * A simple test harness for locally invoking your Lambda function handler.
@@ -50,8 +53,8 @@ public class WebServiceUtilTest {
 	final String service = "TestGet";
 	private final String url = "ServiceUrl";
 	private final String object = "object";
-	private final String qryStr1 = "key1=value1";
-	private final String qryStr2 = "key2=value2";
+	private final String qryStr1 = "key1==value1";
+	private final String qryStr2 = "key2==value2";
 
 	@Before
 	public void before() {
@@ -63,49 +66,64 @@ public class WebServiceUtilTest {
 
 	@Test
 	public void testWebServiceUrlCreation() throws Exception {
-		WebServiceUtil.addParamsToWebTarget(null, webTarget);
-		verify(webTarget, times(0)).path(anyObject());
-		verify(webTarget, times(0)).queryParam(anyString(), anyObject());
-		reset(webTarget);
-		
-		FrontMRequest.Parameters parameters = new FrontMRequest.Parameters();
-		WebServiceUtil.addParamsToWebTarget(null, webTarget);
+		FrontMRequest request = new FrontMRequest();
+		WebServiceUtil.addParamsToWebTarget(request, webTarget);
 		verify(webTarget, times(0)).path(anyObject());
 		verify(webTarget, times(0)).queryParam(anyString(), anyObject());
 		resetMocks();
 		
-		parameters.setObject(object);
-		WebServiceUtil.addParamsToWebTarget(parameters, webTarget);
+		request.setObject(object);
+		WebServiceUtil.addParamsToWebTarget(request, webTarget);
 		verify(webTarget, times(1)).path(object);
 		verify(webTarget, times(0)).queryParam(anyString(), anyObject());
 		resetMocks();
 		
-		parameters.setObject(null);
-		String[] strList = {null, null};
-		parameters.setQueryString(Arrays.asList(strList));
-		WebServiceUtil.addParamsToWebTarget(parameters, webTarget);
+		request.setObject(null);
+		request.setQueryString(null);
+		WebServiceUtil.addParamsToWebTarget(request, webTarget);
 		verify(webTarget, times(0)).path(anyObject());
 		verify(webTarget, times(0)).queryParam(anyString(), anyObject());
 		resetMocks();
 		
-		strList[0] = "invalidQryStr";
-		parameters.setQueryString(Arrays.asList(strList));
-		WebServiceUtil.addParamsToWebTarget(parameters, webTarget);
+		String queryString = "invalidQryStr";
+		request.setQueryString(queryString);
+		WebServiceUtil.addParamsToWebTarget(request, webTarget);
 		verify(webTarget, times(0)).path(anyObject());
 		verify(webTarget, times(0)).queryParam(anyString(), anyObject());
 		resetMocks();
 		
-		strList[0] = qryStr1;
-		parameters.setQueryString(Arrays.asList(strList));
-		WebServiceUtil.addParamsToWebTarget(parameters, webTarget);
+		queryString = "a=b";
+		request.setQueryString(queryString);
+		WebServiceUtil.addParamsToWebTarget(request, webTarget);
+		verify(webTarget, times(0)).path(anyObject());
+		verify(webTarget, times(0)).queryParam(anyString(), anyObject());
+		resetMocks();
+		
+		queryString = qryStr1;
+		request.setQueryString(queryString);
+		WebServiceUtil.addParamsToWebTarget(request, webTarget);
 		verify(webTarget, times(0)).path(anyObject());
 		verify(webTarget, times(1)).queryParam("key1", "value1");
 		resetMocks();
 		
+		queryString = qryStr1+"&";
+		request.setQueryString(queryString);
+		WebServiceUtil.addParamsToWebTarget(request, webTarget);
+		verify(webTarget, times(0)).path(anyObject());
+		verify(webTarget, times(1)).queryParam("key1", "value1&");
+		resetMocks();
+		
+		queryString = qryStr1+"&"+qryStr2;
+		request.setQueryString(queryString);
+		WebServiceUtil.addParamsToWebTarget(request, webTarget);
+		verify(webTarget, times(0)).path(anyObject());
+		verify(webTarget, times(1)).queryParam("key1", "value1&key2");
+		resetMocks();
+		
 		when(webTarget.queryParam("key1", "value1")).thenReturn(webTarget);
-		strList[1] = qryStr2;
-		parameters.setQueryString(Arrays.asList(strList));
-		WebServiceUtil.addParamsToWebTarget(parameters, webTarget);
+		queryString = qryStr1 + "&&" + qryStr2;
+		request.setQueryString(queryString);
+		WebServiceUtil.addParamsToWebTarget(request, webTarget);
 		verify(webTarget, times(0)).path(anyObject());
 		verify(webTarget, times(1)).queryParam("key1", "value1");
 		verify(webTarget, times(1)).queryParam("key2", "value2");
@@ -113,9 +131,9 @@ public class WebServiceUtilTest {
 
 		when(webTarget.queryParam(anyString(), anyObject())).thenReturn(webTarget);
 		when(webTarget.path(object)).thenReturn(webTarget);
-		parameters.setObject(object);
-		parameters.setQueryString(Arrays.asList(strList));
-		WebServiceUtil.addParamsToWebTarget(parameters, webTarget);
+		request.setObject(object);
+		request.setQueryString(queryString);
+		WebServiceUtil.addParamsToWebTarget(request, webTarget);
 		verify(webTarget, times(1)).path(object);
 		verify(webTarget, times(2)).queryParam(anyString(), anyObject());
 	}
@@ -159,7 +177,7 @@ public class WebServiceUtilTest {
 	}
 	
 	@Test
-	public void testGetWebServiceResponse() {
+	public void testCallWebservice() {
 		final APIParameters apiParameters = new APIParameters(domain, service);
 		apiParameters.setMethod("GET");
 		apiParameters.setFormat("JSON");
@@ -169,13 +187,48 @@ public class WebServiceUtilTest {
 		input.setDomain(domain);
 		input.setService(service);
 
-		WebServiceUtil.getWebserviceResponse(input, apiParameters, invocationBuilder);
-		verify(invocationBuilder, times(1)).get();
-		resetMocks();
+		try {
+			WebServiceUtil.callWebservice(input, apiParameters, invocationBuilder);
+			verify(invocationBuilder, times(1)).get();
+			resetMocks();
+			
+			apiParameters.setMethod("POST");
+			WebServiceUtil.callWebservice(input, apiParameters, invocationBuilder);
+			verify(invocationBuilder, times(1)).post(anyObject());
+			resetMocks();
+		} catch (FrontMException e) {
+			fail("No exception should occur");
+		}
 		
-		apiParameters.setMethod("POST");
-		WebServiceUtil.getWebserviceResponse(input, apiParameters, invocationBuilder);
-		verify(invocationBuilder, times(1)).post(anyObject());
+		final String errorMsg = "Expected exception";
+		when(invocationBuilder.get()).thenThrow(new ProcessingException(errorMsg));
+		try {
+			apiParameters.setMethod("GET");
+			WebServiceUtil.callWebservice(input, apiParameters, invocationBuilder);
+			fail("Exception should occur");
+		} catch (FrontMException e) {
+			assertEquals(errorMsg, e.getMessage());
+		}
+	}
+	
+	@Test
+	public void testGetWebServiceResponse() throws Exception {
+		final APIParameters apiParameters = new APIParameters(domain, service);
+		apiParameters.setFormat("JSON");
+
+		String wsResponse = "{\"k1\"=\"v1\"}";
+		when(response.readEntity(String.class)).thenReturn(wsResponse);
+		when(response.getStatus()).thenReturn(200);
+		assertEquals(wsResponse, WebServiceUtil.getWebServiceResponse(apiParameters, response));
+
+		try {
+			when(response.getStatus()).thenReturn(500);
+			when(response.getStatusInfo()).thenReturn(Status.INTERNAL_SERVER_ERROR);
+			WebServiceUtil.getWebServiceResponse(apiParameters, response);
+			fail("An exception should be thrown.");
+		} catch(FrontMException e) {
+			
+		}
 	}
 	
 	@Test
@@ -184,15 +237,21 @@ public class WebServiceUtilTest {
 		apiParameters.setFormat("JSON");
 
 		String jsonResponse = "{\"k1\"=\"v1\"}";
-		when(response.readEntity(String.class)).thenReturn(jsonResponse);
-		assertEquals(jsonResponse, WebServiceUtil.parseWebServiceResponse(apiParameters, response));
+		assertEquals(jsonResponse, WebServiceUtil.parseWebServiceResponse(apiParameters, jsonResponse));
 
-		apiParameters.setMethod("POST");
-		apiParameters.setMapping(null);
+		apiParameters.setFormat("XML");
+
 		String xmlResponse = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?><geonames><status/></geonames>";
 		when(ConvertXMLToJson.convert(xmlResponse, null)).thenReturn(convertedResponse);
 		when(convertedResponse.toString()).thenReturn(jsonResponse);
-		assertEquals(jsonResponse, WebServiceUtil.parseWebServiceResponse(apiParameters, response));
+		assertEquals(jsonResponse, WebServiceUtil.parseWebServiceResponse(apiParameters, xmlResponse));
+	}
+	
+	@Test(expected = FrontMException.class)
+	public void testParseWebServiceError() throws Exception {
+		when(response.getStatus()).thenReturn(401);
+		when(response.getStatusInfo()).thenReturn(Response.Status.UNAUTHORIZED);
+		WebServiceUtil.getWebServiceResponse(new APIParameters(domain, service), response);
 	}
 
 	private void resetMocks() {

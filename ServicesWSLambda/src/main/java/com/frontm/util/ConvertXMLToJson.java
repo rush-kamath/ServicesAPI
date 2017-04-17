@@ -29,6 +29,7 @@ public class ConvertXMLToJson {
 	public static ObjectNode convert(String xmlString, JsonNode mapping) throws Exception {
 		try {
 			logger.info("mapping: " + Jackson.toJsonPrettyString(mapping));
+			logger.info("webservice XML response: " + xmlString);
 			DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
 			factory.setIgnoringElementContentWhitespace(true);
 			DocumentBuilder builder = factory.newDocumentBuilder();
